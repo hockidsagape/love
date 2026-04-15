@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>台北基督之家兒童牧區 愛加倍天地 | 新朋友留名單</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React & ReactDOM -->
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+  
+  <!-- Babel -->
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .animate-spin-slow { animation: spin 1s linear infinite; }
+    
+    /* Custom Scrollbar for list */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+  </style>
+</head>
+<body class="bg-green-50 min-h-screen">
+  <div id="root"></div>
+
+  <script type="text/babel" data-type="module">
+    import { initializeApp } from "https://gs.jurieo.com/gemini/gstatic/firebasejs/11.6.1/firebase-app.js";
+    import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://gs.jurieo.com/gemini/gstatic/firebasejs/11.6.1/firebase-auth.js";
+    import { getFirestore, collection, addDoc, getDocs, updateDoc, deleteDoc, doc, onSnapshot } from "https://gs.jurieo.com/gemini/gstatic/firebasejs/11.6.1/firebase-firestore.js";
+
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    // ─── Firebase 初始化 ────────────────────────────────────────────────────────
+    const firebaseConfig = {
+      apiKey: "AIzaSyDRLqSbwk2-xB-9QC66A4cZwzfJ0byx-dw",
+      authDomain: "hockidsagapelove.firebaseapp.com",
+      projectId: "hockidsagapelove",
+      storageBucket: "hockidsagapelove.firebasestorage.app",
+      messagingSenderId: "652167376901",
+      appId: "1:652167376901:web:f5fe339c834970ee0a6c6c",
+      measurementId: "G-90VFYZKR4M"
+    };
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+    const appId = typeof __app_id !== 'undefined' ? __app_id : 'hockids-default-app';
+    const COLLECTION_NAME = 'hockids_records';
+
+    // ─── 共用常數與圖示 ──────────────────────────────────────────────────────────
+    const GRADES = ["幼兒級","一年級","二年級","三年級","四年級","五年級","六年級"];
+    const SESSIONS = ["第一堂","第二堂"];
+    const today = () => new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+
+    const emptyForm = () => ({
+      date: today(), service: "", name: "", englishName: "", gender: "",
+      birthdate: "", school: "", grade: "", homePhone: "", address: "",
+      parentName: "", parentRelation: "", parentPhone: "", lineId: "",
+    });
+
+    // 計算年齡的輔助函式
+    const calculateAge = (birthdate) => {
+      if (!birthdate) return "";
+      const birthDateObj = new Date(birthdate);
+      const todayDate = new Date();
+      let age = todayDate.getFullYear() - birthDateObj.getFullYear();
+      const m = todayDate.getMonth() - birthDateObj.getMonth();
+      if (m < 0 || (m === 0 && todayDate.getDate() < birthDateObj.getDate())) {
+        age--;
+      }
+      return age >= 0 ? age : "";
+    };
+
+    const Icon = ({ d, size = 18, className = "" }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+        className={`flex-shrink-0 ${className}`}>
+        <path d={d} />
+      </svg>
+    );
+
+    const ICONS = {
+      lock: "M12 17v-2m-6 2a6 6 0 0 1 12 0v2H6v-2zM12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+      camera: "M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z M12 17a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
+      upload: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M17 8l-5-5-5 5 M12 3v12",
+      save: "M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z M17 21v-8H7v8 M7 3v5h8",
+      db: "M12 2C6.48 2 2 4.24 2 7v10c0 2.76 4.48 5 10 5s10-2.24 10-5V7c0-2.76-4.48-5-10-5z M2 7c0 2.76 4.48 5 10 5s10-2.24 10-5 M2 12c0 2.76 4.48 5 10 5s10-2.24 10-5",
+      search: "M21 21l-6-6m2-5a7 7 0 1 1-14 0 7 7 0 0 1 14 0z",
+      logout: "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4 M16 17l5-5-5-5 M21 12H9",
+      download: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4 M7 10l5 5 5-5 M12 15V3",
+      trash: "M3 6h18 M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6 M10 11v6 M14 11v6 M9 6V4h6v2",
+      close: "M18 6L6 18 M6 6l12 12",
+      edit: "M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7 M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z",
+      plus: "M12 5v14 M5 12h14",
+      user: "M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2 M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"
+    };
+
+    // ─── 元件: 按鈕與表單欄位 ────────────────────────────────────────────────
+    const Btn = ({ children, onClick, variant = "default", disabled, className = "", small }) => {
+      const base = "inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition-all duration-200 outline-none";
+      const sizeClass = small ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm";
+      const opClass = disabled ? "opacity-50 cursor-not-allowed" : "hover:brightness-105 active:scale-[0.98]";
+      
+      const variants = {
+        default: "bg-gray-100 text-gray-700 hover:bg-gray-200",
+        primary: "bg-green-600 text-white shadow-sm shadow-green-200",
+        blue: "bg-blue-600 text-white shadow-sm shadow-blue-200",
+        danger: "bg-red-50 text-red-600 hover:bg-red-100",
+        ghost: "bg-transparent text-gray-500 hover:bg-gray-100"
+      };
+      return (
+        <button onClick={onClick} disabled={disabled} className={`${base} ${sizeClass} ${opClass} ${variants[variant]} ${className}`}>
+          {children}
+        </button>
+      );
+    };
+
+    const Field = ({ label, children, required, colSpan = "col-span-2 sm:col-span-1" }) => (
+      <div className={`flex flex-col gap-1.5 ${colSpan}`}>
+        <label className="text-xs font-medium text-gray-500">
+          {label} {required && <span className="text-red-500">*</span>}
+        </label>
+        {children}
+      </div>
+    );
+
+    const inputClasses = "w-full px-3 py-2 bg-white border border-gray-200 rounded-lg text-sm text-gray-800 focus:outline-none focus:border-green-500 focus:ring-2 focus:ring-green-100 transition-all";
+
+    const Toast = ({ msg, type = 'info', onClose }) => {
+      if (!msg) return null;
+      const colors = {
+        success: "bg-green-100 text-green-800 border-green-200",
+        error: "bg-red-100 text-red-800 border-red-200",
+        info: "bg-blue-100 text-blue-800 border-blue-200"
+      };
+      return (
+        <div className={`fixed bottom-6 right-6 px-4 py-3 rounded-lg border shadow-lg z-50 flex items-center gap-3 animate-bounce ${colors[type]}`}>
+          <span className="font-medium text-sm">{msg}</span>
+          <button onClick={onClose} className="p-1 hover:bg-white/30 rounded-full"><Icon d={ICONS.close} size={14} /></button>
+        </div>
+      );
+    };
+
+    // ─── 表單主體 ─────────────────────────────────────────────────────────────
+    function FormPanel({ initial, onSaved, onCancel, user }) {
+      const [form, setForm] = useState({ ...emptyForm(), ...initial });
+      const [saving, setSaving] = useState(false);
+      const [toast, setToast] = useState(null);
+
+      const handleChange = e => setForm(p => ({ ...p, [e.target.name]: e.target.value }));
+
+      const handleSave = async () => {
+        if (!form.name && !form.englishName) {
+          setToast({ msg: "請至少填寫中文或英文姓名", type: "error" });
+          return;
+        }
+        setSaving(true);
+        try {
+          await onSaved(form);
+          setToast({ msg: "資料已成功儲存！", type: "success" });
+          if (!initial.id) setForm(emptyForm()); // 新增後清空
+        } catch (e) {
+          console.error(e);
+          // 將詳細的錯誤訊息顯示在畫面上，方便排解問題
+          setToast({ msg: `儲存失敗: ${e.message || "權限不足或網路異常"}`, type: "error" });
+        } finally {
+          setSaving(false);
+          setTimeout(() => setToast(null), 5000);
+        }
+      };
+
+      const age = calculateAge(form.birthdate);
+
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+            <Field label="登記日期" colSpan="col-span-1">
+              <input type="date" name="date" value={form.date} onChange={handleChange} className={inputClasses} />
+            </Field>
+            <Field label="聚會堂別" colSpan="col-span-1">
+              <select name="service" value={form.service} onChange={handleChange} className={inputClasses}>
+                <option value="">請選擇</option>
+                {SESSIONS.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </Field>
+            <Field label="性別" colSpan="col-span-1">
+              <select name="gender" value={form.gender} onChange={handleChange} className={inputClasses}>
+                <option value="">請選擇</option>
+                <option value="男生">男生</option>
+                <option value="女生">女生</option>
+              </select>
+            </Field>
+
+            <Field label="中文姓名" required colSpan="col-span-2 sm:col-span-1">
+              <input name="name" value={form.name} onChange={handleChange} className={inputClasses} />
+            </Field>
+            <Field label="英文名字" col colSpan="col-span-2 sm:col-span-1">
+              <input name="englishName" value={form.englishName} onChange={handleChange} className={inputClasses} />
+            </Field>
+            <Field label={`出生年月日${age !== "" ? ` (${age}歲)` : ""}`} colSpan="col-span-2 sm:col-span-1">
+              <input type="date" name="birthdate" value={form.birthdate} onChange={handleChange} className={inputClasses} />
+            </Field>
+
+            <Field label="就讀年級" colSpan="col-span-1 sm:col-span-1">
+              <select name="grade" value={form.grade} onChange={handleChange} className={inputClasses}>
+                <option value="">請選擇</option>
+                {GRADES.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </Field>
+            <Field label="學校名稱" colSpan="col-span-1 sm:col-span-2">
+              <input name="school" value={form.school} onChange={handleChange} placeholder="就讀學校" className={inputClasses} />
+            </Field>
+          </div>
+
+          <div className="bg-gray-50 border border-gray-200 rounded-xl p-4 mt-2">
+            <div className="text-xs font-bold text-gray-500 mb-3 flex items-center gap-2 uppercase tracking-wider">
+              <Icon d={ICONS.user} size={14} /> 聯絡資訊
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <Field label="家長姓名">
+                <input name="parentName" value={form.parentName} onChange={handleChange} className={inputClasses} />
+              </Field>
+              <Field label="稱謂 (如: 爸爸/外婆)">
+                <input name="parentRelation" value={form.parentRelation} onChange={handleChange} className={inputClasses} />
+              </Field>
+              <Field label="家長手機">
+                <input name="parentPhone" value={form.parentPhone} onChange={handleChange} type="tel" className={inputClasses} />
+              </Field>
+              <Field label="家裡電話">
+                <input name="homePhone" value={form.homePhone} onChange={handleChange} type="tel" className={inputClasses} />
+              </Field>
+              <Field label="LINE ID">
+                <input name="lineId" value={form.lineId} onChange={handleChange} className={inputClasses} />
+              </Field>
+              <Field label="地址" colSpan="col-span-2 sm:col-span-3">
+                <input name="address" value={form.address} onChange={handleChange} className={inputClasses} />
+              </Field>
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-4">
+            <Btn variant="primary" onClick={handleSave} disabled={saving} className="flex-1 py-3">
+              {saving ? <Icon d={ICONS.camera} className="animate-spin-slow" /> : <Icon d={ICONS.save} />}
+              {saving ? "儲存中..." : "儲存資料"}
+            </Btn>
+            {onCancel && <Btn variant="default" onClick={onCancel}>取消</Btn>}
+          </div>
+          {toast && <Toast msg={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
+        </div>
+      );
+    }
+
+    // ─── 拍照辨識小工具 (Gemini API 整合) ──────────────────────────────────────────
+    function ScannerWidget({ onScanComplete, onClear, user }) {
+      const [img, setImg] = useState(null);
+      const [scanning, setScanning] = useState(false);
+      const [msg, setMsg] = useState(null);
+      const fileInputRef = useRef();
+
+      const processFile = useCallback((file) => {
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = ev => {
+          const image = new Image();
+          image.onload = () => {
+            // 加強壓縮圖片避免超過 Firebase 1MB 限制
+            const MAX = 800; 
+            let { width: w, height: h } = image;
+            if (w > h && w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+            else if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+            
+            const canvas = document.createElement("canvas");
+            canvas.width = w; canvas.height = h;
+            canvas.getContext("2d").drawImage(image, 0, 0, w, h);
+            // 壓縮品質從 0.8 降為 0.6，大幅縮小檔案體積
+            const dataUrl = canvas.toDataURL("image/jpeg", 0.6);
+            
+            setImg(dataUrl); setMsg(null);
+            if (onClear) onClear(); // 清空表單舊資料
+            runGeminiAnalysis(dataUrl);
+          };
+          image.src = ev.target.result;
+        };
+        reader.readAsDataURL(file);
+      }, [onClear]);
+
+      const fetchWithRetry = async (url, options, maxRetries = 5) => {
+        let delay = 1000;
+        for (let i = 0; i < maxRetries; i++) {
+          try {
+            const res = await fetch(url, options);
+            if (!res.ok) throw new Error('API Response not ok');
+            return res;
+          } catch (e) {
+            if (i === maxRetries - 1) throw e;
+            await new Promise(r => setTimeout(r, delay));
+            delay *= 2;
+          }
+        }
+      };
+
+      const runGeminiAnalysis = async (dataUrl) => {
+        setScanning(true);
+        setMsg(null);
+        
+        try {
+          const base64Data = dataUrl.split(",")[1];
+          
+          // --- 修改重點：從瀏覽器讀取金鑰，若無則要求輸入 ---
+          let apiKey = localStorage.getItem('GEMINI_API_KEY');
+          if (!apiKey) {
+            apiKey = prompt("【初次設定】請輸入您的 Gemini API 金鑰以啟用 AI 辨識：\n(金鑰只會安全地儲存在您的本機設備中)");
+            if (apiKey) {
+              localStorage.setItem('GEMINI_API_KEY', apiKey.trim());
+            } else {
+              setMsg({ type: "err", text: "需要 API Key 才能執行 AI 辨識，請改用下方手動輸入。" });
+              if (onClear) onClear();
+              setScanning(false);
+              return;
+            }
+          }
+          // --- 修改重點：使用外部帳號通用的 gemini-1.5-flash 模型 ---
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+          
+          const promptText = `請辨識這張兒童牧區新朋友登記表，並嚴格以 JSON 格式回傳，不要包含 markdown 標籤或其他文字。
+          包含以下欄位（若無資料請留空字串）：
+          "name": 中文姓名
+          "englishName": 英文名
+          "birthdate": 轉換為 YYYY-MM-DD 格式
+          "gender": "男生" 或 "女生"
+          "school": 學校名稱
+          "grade": 幼兒級/一年級/二年級/三年級/四年級/五年級/六年級
+          "homePhone": 家裡電話號碼
+          "address": 地址
+          "parentName": 爸/媽的名字
+          "parentRelation": 稱謂 (例如: 外婆, 媽媽)
+          "parentPhone": 爸/媽的手機號碼
+          "lineId": LINE ID
+          "service": "第一堂" 或 "第二堂"`;
+
+          const payload = {
+            contents: [{
+              role: "user",
+              parts: [
+                { text: promptText },
+                { inlineData: { mimeType: "image/jpeg", data: base64Data } }
+              ]
+            }],
+            generationConfig: {
+              responseMimeType: "application/json"
+            }
+          };
+
+          const response = await fetchWithRetry(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+
+          const data = await response.json();
+          const textResponse = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          
+          if (!textResponse) throw new Error("無效的 API 回應");
+          
+          const cleanJson = textResponse.replace(/```json/g, '').replace(/```/g, '').trim();
+          const parsed = JSON.parse(cleanJson);
+          
+          setMsg({ type: "ok", text: "辨識成功！請核對下方帶入的資料後儲存。" });
+          if (onScanComplete) onScanComplete(parsed, dataUrl);
+        } catch (err) {
+          console.error("OCR Error:", err);
+          // 若金鑰錯誤或失效，自動清除紀錄，讓使用者下次可以重填
+          if (err.message.includes('API Response not ok') || err.message.includes('400') || err.message.includes('403')) {
+            localStorage.removeItem('GEMINI_API_KEY');
+            setMsg({ type: "err", text: "API 金鑰無效或受限。金鑰已清除，請重新點選拍照並輸入正確的金鑰。" });
+          } else {
+            setMsg({ type: "err", text: "AI 辨識發生錯誤或圖片不夠清晰，請直接於下方手動輸入。" });
+          }
+          if (onClear) onClear();
+        } finally {
+          setScanning(false);
+        }
+      };
+
+      return (
+        <div className="flex flex-col gap-5">
+          <div className="flex items-center gap-2 text-green-700 font-bold text-lg">
+            <Icon d={ICONS.camera} size={22} /> AI 拍照快速建檔
+          </div>
+
+          {!img && !scanning && (
+            <button onClick={() => fileInputRef.current.click()} className="group w-full bg-green-50 hover:bg-green-100 border-2 border-dashed border-green-300 rounded-2xl p-8 flex flex-col items-center gap-4 transition-colors">
+              <div className="flex gap-4">
+                <div className="w-16 h-16 rounded-full bg-green-200 text-green-700 flex items-center justify-center group-hover:scale-110 transition-transform shadow-sm">
+                  <Icon d={ICONS.camera} size={32} />
+                </div>
+              </div>
+              <div className="text-center">
+                <div className="font-bold text-green-800 text-lg">開啟相機拍照 / 上傳照片</div>
+                <div className="text-sm text-green-600/80 mt-1.5">點擊後可選擇直接拍照或從相簿挑選</div>
+              </div>
+            </button>
+          )}
+
+          {scanning && (
+            <div className="flex flex-col items-center justify-center py-8 gap-5">
+              <div className="relative">
+                <img src={img} className="max-h-56 object-contain rounded-xl opacity-50 blur-[2px]" alt="scanning" />
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <Icon d={ICONS.camera} size={40} className="text-green-600 animate-bounce" />
+                </div>
+              </div>
+              <div className="text-green-700 font-bold flex items-center gap-3 bg-green-50 px-5 py-2.5 rounded-full text-sm">
+                <Icon d={ICONS.camera} className="animate-spin-slow" /> 
+                Gemini AI 正在努力解讀字跡中...
+              </div>
+            </div>
+          )}
+
+          {img && !scanning && (
+            <div className="relative rounded-xl overflow-hidden bg-gray-50 border border-gray-200 flex justify-center">
+              <img src={img} className="max-h-64 object-contain" alt="preview" />
+              <button onClick={() => { setImg(null); if(onClear) onClear(); }} className="absolute top-3 right-3 bg-red-500/90 text-white p-2 rounded-full hover:bg-red-600 shadow-sm backdrop-blur-sm transition-transform hover:scale-110">
+                <Icon d={ICONS.close} size={16} />
+              </button>
+            </div>
+          )}
+
+          {msg && (
+            <div className={`p-3.5 rounded-xl text-sm font-medium flex items-center gap-2 ${msg.type === 'ok' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+              <Icon d={msg.type === 'ok' ? ICONS.save : ICONS.close} />
+              {msg.text}
+            </div>
+          )}
+
+          <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={e => { processFile(e.target.files[0]); e.target.value=''; }} />
+        </div>
+      );
+    }
+
+    // ─── 資料庫分頁 ───────────────────────────────────────────────────────────
+    function DBTab({ user }) {
+      const [unlocked, setUnlocked] = useState(false);
+      const [pw, setPw] = useState("");
+      const [pwError, setPwError] = useState(false);
+      const [records, setRecords] = useState([]);
+      const [loading, setLoading] = useState(false);
+      const [search, setSearch] = useState("");
+      const [previewImg, setPreviewImg] = useState(null);
+      const [editId, setEditId] = useState(null);
+
+      const checkPassword = () => {
+        if (["HOCKIDS", "hockids"].includes(pw.trim())) {
+          setUnlocked(true); setPwError(false);
+        } else {
+          setPwError(true); setPw("");
+        }
+      };
+
+      useEffect(() => {
+        if (!unlocked || !user) return;
+        setLoading(true);
+        const colRef = collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME);
+        
+        const unsubscribe = onSnapshot(colRef, (snapshot) => {
+          const docs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          // 在記憶體中排序 (最新在前)
+          docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+          setRecords(docs);
+          setLoading(false);
+        }, (err) => {
+          console.error("Listen failed:", err);
+          setLoading(false);
+        });
+
+        return () => unsubscribe();
+      }, [unlocked, user]);
+
+      const handleDelete = async (id) => {
+        if (!confirm("確定要刪除這筆資料嗎？刪除後無法復原。")) return;
+        try {
+          await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id));
+        } catch (e) {
+          console.error(e);
+          alert("刪除失敗");
+        }
+      };
+
+      const handleUpdate = async (id, form) => {
+        try {
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME, id), form);
+          setEditId(null);
+        } catch (e) {
+          console.error(e);
+          throw e;
+        }
+      };
+
+      const exportCSV = () => {
+        const BOM = "\uFEFF";
+        const hdr = ["建檔時間","姓名","英文名","性別","堂別","生日","年級","學校","家長姓名","稱謂","家長手機","家裡電話","LINE","地址"];
+        const rows = records.map(r => [
+          r.createdAt ? new Date(r.createdAt).toLocaleDateString('zh-TW') : "",
+          r.name||"", r.englishName||"", r.gender||"", r.service||"",
+          r.birthdate||"", r.grade||"", r.school||"",
+          r.parentName||"", r.parentRelation||"", r.parentPhone||"",
+          r.homePhone||"", r.lineId||"", `"${(r.address||"").replace(/"/g,'""')}"`
+        ].join(","));
+        
+        const csv = BOM + hdr.join(",") + "\n" + rows.join("\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = `新朋友名單_${today()}.csv`;
+        link.click();
+      };
+
+      if (!unlocked) {
+        return (
+          <div className="flex justify-center pt-16 px-4">
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm text-center">
+              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4 text-green-700">
+                <Icon d={ICONS.lock} size={28} />
+              </div>
+              <h2 className="text-xl font-bold text-gray-800 mb-2">安全存取</h2>
+              <p className="text-sm text-gray-500 mb-6">請輸入管理密碼以檢視新朋友名單資料庫。</p>
+              
+              <input 
+                type="password" value={pw} 
+                onChange={e => { setPw(e.target.value); setPwError(false); }}
+                onKeyDown={e => e.key === 'Enter' && checkPassword()}
+                placeholder="請輸入密碼" 
+                className={`w-full text-center px-4 py-3 bg-gray-50 border rounded-xl mb-3 focus:outline-none focus:ring-2 focus:ring-green-200 transition-colors ${pwError ? 'border-red-400' : 'border-gray-200'}`}
+              />
+              {pwError && <div className="text-red-500 text-xs font-bold mb-3 animate-pulse">密碼錯誤，請再試一次</div>}
+              
+              <Btn variant="primary" onClick={checkPassword} className="w-full py-3">解鎖資料庫</Btn>
+            </div>
+          </div>
+        );
+      }
+
+      const queryStr = search.toLowerCase();
+      const filtered = queryStr 
+        ? records.filter(r => [r.name, r.englishName, r.parentName, r.parentPhone, r.homePhone].some(v => (v||"").toLowerCase().includes(queryStr)))
+        : records;
+
+      return (
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-white p-4 rounded-2xl shadow-sm border border-gray-100">
+            <div className="relative w-full sm:w-72">
+              <Icon d={ICONS.search} size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input 
+                value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="搜尋姓名、家長、電話..."
+                className="w-full pl-9 pr-4 py-2 bg-gray-50 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-green-400 focus:bg-white transition-colors"
+              />
+            </div>
+            <div className="flex items-center gap-3 w-full sm:w-auto">
+              <div className="text-sm text-gray-500 font-medium whitespace-nowrap hidden lg:block">共 {filtered.length} 筆資料</div>
+              <Btn onClick={exportCSV} className="flex-1 sm:flex-none"><Icon d={ICONS.download} size={16} /> 匯出 CSV</Btn>
+              <Btn variant="ghost" onClick={() => setUnlocked(false)} className="px-2"><Icon d={ICONS.logout} size={18} /></Btn>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="py-20 flex justify-center text-green-500"><Icon d={ICONS.camera} size={32} className="animate-spin-slow" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="py-20 text-center text-gray-400 font-medium bg-white rounded-2xl border border-gray-100 border-dashed">
+              尚無符合的資料
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 gap-4">
+              {filtered.map(r => {
+                if (editId === r.id) return (
+                  <div key={r.id} className="bg-white rounded-2xl p-5 shadow-md border-l-4 border-green-500 ring-1 ring-gray-100">
+                    <div className="font-bold text-green-700 mb-4 flex items-center gap-2"><Icon d={ICONS.edit} /> 編輯資料模式</div>
+                    <FormPanel initial={r} onSaved={(form) => handleUpdate(r.id, form)} onCancel={() => setEditId(null)} user={user} />
+                  </div>
+                );
+                
+                const isBoy = r.gender === "男生";
+                
+                return (
+                  <div key={r.id} className="bg-white rounded-2xl p-4 sm:p-5 shadow-sm border border-gray-100 hover:border-green-200 transition-colors flex flex-col sm:flex-row gap-4 sm:gap-6">
+                    {/* 照片縮圖 */}
+                    <div 
+                      className={`shrink-0 w-16 h-16 sm:w-24 sm:h-24 rounded-xl overflow-hidden bg-gray-50 border ${r.photoData ? 'cursor-pointer hover:opacity-80 border-green-100 ring-2 ring-transparent hover:ring-green-300 transition-all' : 'border-gray-200 flex items-center justify-center'}`}
+                      onClick={() => r.photoData && setPreviewImg(r.photoData)}
+                    >
+                      {r.photoData ? (
+                        <img src={r.photoData} className="w-full h-full object-cover" alt="form" />
+                      ) : (
+                        <Icon d={ICONS.user} size={24} className="text-gray-300" />
+                      )}
+                    </div>
+                    
+                    {/* 資料區塊 */}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <span className="text-lg font-bold text-gray-800">{r.name || "未填寫"}</span>
+                        {r.englishName && <span className="text-sm font-medium text-gray-500 border-l pl-2">{r.englishName}</span>}
+                        {r.gender && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full font-bold ml-1 ${isBoy ? 'bg-blue-100 text-blue-700' : 'bg-pink-100 text-pink-700'}`}>
+                            {r.gender}
+                          </span>
+                        )}
+                        {r.service && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full font-bold">{r.service}</span>}
+                      </div>
+                      
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-x-4 gap-y-1.5 mt-3">
+                        {[
+                          { l: "年級", v: r.grade },
+                          { l: "生日", v: r.birthdate ? `${r.birthdate}${calculateAge(r.birthdate) !== "" ? ` (${calculateAge(r.birthdate)}歲)` : ""}` : null },
+                          { l: "家長", v: r.parentName ? `${r.parentName}${r.parentRelation ? `(${r.parentRelation})` : ''}` : null },
+                          { l: "電話", v: r.parentPhone || r.homePhone },
+                          { l: "LINE", v: r.lineId },
+                          { l: "地址", v: r.address }
+                        ].filter(item => item.v).map((item, idx) => (
+                          <div key={idx} className="text-sm text-gray-600 truncate" title={item.v}>
+                            <span className="text-gray-400 text-xs mr-1">{item.l}:</span>{item.v}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-[11px] text-gray-400 mt-3 pt-3 border-t border-gray-50">
+                        建立時間: {r.createdAt ? new Date(r.createdAt).toLocaleString('zh-TW') : "未知"}
+                      </div>
+                    </div>
+                    
+                    {/* 操作按鈕 */}
+                    <div className="flex sm:flex-col gap-2 shrink-0">
+                      <Btn small variant="default" onClick={() => setEditId(r.id)} className="flex-1"><Icon d={ICONS.edit} size={14} /> 編輯</Btn>
+                      <Btn small variant="danger" onClick={() => handleDelete(r.id)} className="flex-1"><Icon d={ICONS.trash} size={14} /> 刪除</Btn>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {/* 照片放大預覽 */}
+          {previewImg && (
+            <div 
+              className="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fade-in"
+              onClick={() => setPreviewImg(null)}
+            >
+              <div className="relative max-w-4xl w-full max-h-[90vh] flex flex-col items-end" onClick={e => e.stopPropagation()}>
+                <button onClick={() => setPreviewImg(null)} className="bg-white/10 hover:bg-white/20 text-white rounded-full p-2 mb-3 backdrop-blur-md transition-colors">
+                  <Icon d={ICONS.close} size={24} />
+                </button>
+                <img src={previewImg} className="w-full h-full object-contain rounded-xl shadow-2xl" alt="Full size preview" />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ─── 新增分頁主控 ─────────────────────────────────────────────────────────
+    function AddPage({ onSaved, user }) {
+      const [initialData, setInitialData] = useState({});
+      const [scannedImage, setScannedImage] = useState(null);
+      const [formKey, setFormKey] = useState(0);
+
+      const handleScanComplete = (parsedData, dataUrl) => {
+        setInitialData(parsedData);
+        setScannedImage(dataUrl);
+        setFormKey(prev => prev + 1); // 強制重新渲染 FormPanel，載入新資料
+      };
+
+      const handleClearScan = () => {
+        setInitialData({});
+        setScannedImage(null);
+        setFormKey(prev => prev + 1);
+      };
+      
+      const handleSave = async (form) => {
+        try {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', COLLECTION_NAME), {
+            ...form,
+            photoData: scannedImage,
+            createdAt: Date.now()
+          });
+          onSaved();
+          // 儲存後清空狀態
+          setInitialData({});
+          setScannedImage(null);
+          setFormKey(prev => prev + 1);
+        } catch (e) {
+          console.error("儲存失敗", e);
+          throw e;
+        }
+      };
+
+      return (
+        <div className="max-w-2xl mx-auto flex flex-col gap-6">
+          {/* AI 拍照區塊 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-green-100 p-5 md:p-6 animate-fade-in">
+            <ScannerWidget onScanComplete={handleScanComplete} onClear={handleClearScan} user={user} />
+          </div>
+
+          {/* 手動輸入與核對區塊 */}
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 md:p-6 animate-fade-in">
+            <div className="text-lg font-bold text-gray-800 mb-6 flex items-center gap-2 border-b border-gray-100 pb-3">
+              <Icon d={ICONS.edit} className="text-green-600" /> 手動填寫與核對資料
+            </div>
+            <FormPanel key={formKey} initial={initialData} onSaved={handleSave} user={user} />
+          </div>
+        </div>
+      );
+    }
+
+    // ─── 主應用程式 ───────────────────────────────────────────────────────────
+    function App() {
+      const [tab, setTab] = useState("add");
+      const [user, setUser] = useState(null);
+      const [authLoading, setAuthLoading] = useState(true);
+
+      // Firebase 登入流程
+      useEffect(() => {
+        const initAuth = async () => {
+          try {
+            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+              await signInWithCustomToken(auth, __initial_auth_token);
+            } else {
+              await signInAnonymously(auth);
+            }
+          } catch (e) {
+            console.error("Auth init failed:", e);
+          }
+        };
+        initAuth();
+        const unsubscribe = onAuthStateChanged(auth, (u) => {
+          setUser(u);
+          setAuthLoading(false);
+        });
+        return () => unsubscribe();
+      }, []);
+
+      const tabs = [
+        { id: "add", label: "填寫資料", icon: ICONS.plus },
+        { id: "db", label: "資料庫", icon: ICONS.db },
+      ];
+
+      return (
+        <div className="min-h-screen pb-12 font-sans selection:bg-green-200">
+          {/* Header 橫幅區 */}
+          <div className="bg-white border-b border-green-100 sticky top-0 z-40 shadow-sm">
+            {/* 視覺標題圖 (使用上傳的 Canva 圖片) */}
+            <div className="w-full h-32 md:h-48 lg:h-56 overflow-hidden relative bg-[#fdfcf5]">
+              <img 
+                src="Screenshot_20260412_140724_Canva.jpg.jpg" 
+                alt="台北基督之家兒童牧區 愛加倍天地" 
+                className="w-full h-full object-contain object-center max-w-5xl mx-auto"
+                onError={(e) => e.target.style.display = 'none'}
+              />
+            </div>
+            
+            {/* 導覽列 */}
+            <div className="max-w-5xl mx-auto px-4 py-3 flex justify-between items-center gap-4">
+              <div className="flex items-center gap-3">
+                <div className="bg-gradient-to-br from-green-500 to-green-600 w-10 h-10 rounded-xl flex items-center justify-center text-white shadow-sm shrink-0">
+                  <Icon d={ICONS.user} size={22} />
+                </div>
+                <div>
+                  <h1 className="font-bold text-gray-800 leading-tight text-sm sm:text-base">台北基督之家兒童牧區 愛加倍天地</h1>
+                  <p className="text-xs text-green-600 font-bold tracking-wide mt-0.5">新朋友留名單</p>
+                </div>
+              </div>
+              
+              <div className="flex bg-gray-100 p-1 rounded-xl shrink-0">
+                {tabs.map(t => (
+                  <button 
+                    key={t.id} 
+                    onClick={() => setTab(t.id)} 
+                    className={`flex items-center gap-1.5 px-3 py-2 sm:px-5 sm:py-2 rounded-lg text-sm font-bold transition-all ${tab === t.id ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700 hover:bg-gray-200/50'}`}
+                  >
+                    <Icon d={t.icon} size={16} className={tab === t.id ? "text-green-600" : "text-gray-400"} />
+                    <span className="hidden sm:inline">{t.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* 主要內容區 */}
+          <main className="max-w-5xl mx-auto px-4 py-6 md:py-10">
+            {authLoading ? (
+              <div className="flex justify-center py-20 text-green-500"><Icon d={ICONS.camera} size={32} className="animate-spin-slow" /></div>
+            ) : (
+              <>
+                {tab === "add" && <AddPage onSaved={() => setTab("db")} user={user} />}
+                {tab === "db" && <DBTab user={user} />}
+              </>
+            )}
+          </main>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>
